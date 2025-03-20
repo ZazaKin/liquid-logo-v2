@@ -1,3 +1,79 @@
-<img width="1654" alt="image" src="https://github.com/user-attachments/assets/f7abb52f-c546-4132-82f3-aac2bb9054ca" />
+Liquid Metal Favicon Generator
 
-Just for fun, make your logo in liquid metal: <a href="https://liquid.paper.design">liquid.paper.design</a>
+Generate animated liquid metal favicons for your website. This tool allows you to upload your logo and transform it into a shimmering liquid metal animation, perfect for modern websites.
+
+## Installation
+
+To set up the Liquid Metal Favicon Generator locally:
+
+# Clone the repository
+git clone https://github.com/yourusername/liquid-logo.git
+cd liquid-logo
+
+# Install dependencies
+npm install
+
+# Install gif.js for animation
+npm install gif.js
+
+# Copy the worker script to your public directory
+cp node_modules/gif.js/dist/gif.worker.js public/
+
+# Start the development server
+npm run dev
+
+## Usage
+
+1. Open your browser and navigate to `http://localhost:3000`
+
+2. Upload your logo:
+   - Click the upload button
+   - Drag and drop your image
+   - Choose a PNG, JPG, or SVG file (SVG works best)
+
+3. Adjust the settings:
+   - Pattern Scale
+   - Refraction
+   - Edge
+   - Pattern Blur
+   - Liquid
+   - Speed
+
+4. Generate your animated favicon:
+   - Open the browser console (F12 or Cmd+Option+J)
+   - Run the command: `window.downloadLiquidFavicon()`
+
+## Download Command Options
+
+The download command accepts parameters for customizing your animation:
+
+```javascript
+window.downloadLiquidFavicon(frameCount, frameDelay, quality, size);
+```
+
+| Parameter   | Default | Description                                |
+|-------------|--------:|--------------------------------------------|
+| frameCount  | 30      | Number of frames in the animation          |
+| frameDelay  | 50      | Delay between frames (milliseconds)        |
+| quality     | 10      | Quality setting (1 = highest, 20 = lowest) |
+| size        | 64      | Output size in pixels                      |
+
+### Examples
+
+```javascript
+// Standard favicon (64x64)
+window.downloadLiquidFavicon(30, 50, 10, 64);
+
+// Higher quality animation
+window.downloadLiquidFavicon(60, 100, 1, 128);
+
+// Maximum quality (may be large file size)
+window.downloadLiquidFavicon(90, 100, 1, 512);
+```
+
+## License
+
+This project is MIT licensed. Feel free to use and modify.
+
+---
+

@@ -3,6 +3,7 @@
 import { liquidFragSource } from '@/app/hero/liquid-frag';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { captureAnimation, downloadAnimation } from './download-animation';
 
 // uniform sampler2D u_image_texture;
 // uniform float u_time;
@@ -250,6 +251,47 @@ export function Canvas({
       }
     };
   }, [gl, uniforms, imageData]);
+
+  const captureAndDownloadAnimation = async (
+    frameCount = 30, 
+    frameDelay = 50, 
+    quality = 10, 
+    size = 64
+  ) => {
+    if (!canvasRef.current) return;
+    
+    try {
+      console.log(`Starting capture: ${frameCount} frames, ${frameDelay}ms delay, quality ${quality}, size ${size}px`);
+      toast.info('Starting GIF capture...');
+      
+      const animationUrl = await captureAnimation(
+        canvasRef.current, 
+        frameCount, 
+        frameDelay, 
+        quality,
+        size
+      );
+      
+      console.log('Capture complete, downloading...');
+      toast.success('GIF created successfully!');
+      downloadAnimation(animationUrl);
+    } catch (error) {
+      console.error('Failed to capture animation:', error);
+      toast.error('Failed to capture animation');
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).downloadLiquidFavicon = captureAndDownloadAnimation;
+    }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).downloadLiquidFavicon;
+      }
+    };
+  }, []);
 
   return <canvas ref={canvasRef} className="block h-full w-full object-contain" />;
 }

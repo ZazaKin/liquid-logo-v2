@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { parseLogoImage } from './parse-logo-image';
 import { uploadImage } from '@/hero/upload-image';
 import isEqual from 'lodash-es/isEqual';
+import { handleLocalImage } from './local-image-handler';
 
 interface HeroProps {
   imageId: string;
@@ -144,19 +145,8 @@ export function Hero({ imageId }: HeroProps) {
         parseLogoImage(file).then(({ imageData, pngBlob }) => {
           // Set the image data for the shader to pick up
           setImageData(imageData);
+          handleLocalImage(imageData);
           setProcessing(false);
-
-          // Upload the image
-          uploadImage(pngBlob)
-            .then((imageId) => {
-              // Update the URL for sharing
-              if (typeof window !== 'undefined' && typeof imageId === 'string' && imageId.length > 0) {
-                // const currentParams = searchParams.values.length ? '?' + searchParams.toString() : '';
-                window.history.pushState({}, '', `/share/${imageId}`);
-              }
-            })
-            .catch(console.error)
-            .finally(() => setProcessing(false));
         });
       } else {
         toast.error('Please upload only images or SVG files');
