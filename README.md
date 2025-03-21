@@ -2,27 +2,25 @@
 
 Generate animated liquid metal favicons for your website. This tool allows you to upload your logo and transform it into a shimmering liquid metal animation, perfect for modern websites.
 
-## Installation
+# Installation
 
-To set up the Liquid Metal Favicon Generator locally:
-
-# Clone the repository
+## Clone the repository
 git clone https://github.com/yourusername/liquid-logo.git
 cd liquid-logo
 
-# Install dependencies
+## Install dependencies
 npm install
 
-# Install gif.js for animation
+## Install gif.js for animation
 npm install gif.js
 
-# Copy the worker script to your public directory
+## Copy the worker script to your public directory
 cp node_modules/gif.js/dist/gif.worker.js public/
 
-# Start the development server
+## Start the development server
 npm run dev
 
-## Usage
+# Usage
 
 1. Open your browser and navigate to `http://localhost:3000`
 
