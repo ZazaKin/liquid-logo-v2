@@ -5,7 +5,8 @@ export function captureAnimation(
   frameCount: number = 30, 
   frameDelay: number = 50,
   quality: number = 1,
-  size: number = 256
+  size: number = 256,
+  transparent: boolean = false
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const gif = new GIF({
@@ -14,7 +15,8 @@ export function captureAnimation(
       width: size,
       height: size,
       dither: 'FloydSteinberg',
-      workerScript: '/gif.worker.js'
+      workerScript: '/gif.worker.js',
+      transparent: transparent ? 0x00000000 : null // Enable transparency if requested
     });
     
     let framesCaptures = 0;

@@ -255,13 +255,14 @@ export function Canvas({
   const captureAndDownloadAnimation = async (
     frameCount = 30, 
     frameDelay = 50, 
-    quality = 10, 
-    size = 64
+    quality = 1, 
+    size = 256,
+    transparent = false
   ) => {
     if (!canvasRef.current) return;
     
     try {
-      console.log(`Starting capture: ${frameCount} frames, ${frameDelay}ms delay, quality ${quality}, size ${size}px`);
+      console.log(`Starting capture: ${frameCount} frames, ${frameDelay}ms delay, quality ${quality}, size ${size}px, transparent: ${transparent}`);
       toast.info('Starting GIF capture...');
       
       const animationUrl = await captureAnimation(
@@ -269,7 +270,8 @@ export function Canvas({
         frameCount, 
         frameDelay, 
         quality,
-        size
+        size,
+        transparent
       );
       
       console.log('Capture complete, downloading...');

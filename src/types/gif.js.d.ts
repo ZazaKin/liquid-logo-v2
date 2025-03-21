@@ -6,6 +6,7 @@ declare module 'gif.js' {
     height?: number;
     workerScript?: string;
     dither?: boolean | 'FloydSteinberg';
+    transparent?: number | null;
   }
 
   export default class GIF {

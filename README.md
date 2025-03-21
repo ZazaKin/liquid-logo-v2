@@ -48,7 +48,7 @@ npm run dev
 The download command accepts parameters for customizing your animation:
 
 ```javascript
-window.downloadLiquidFavicon(frameCount, frameDelay, quality, size);
+window.downloadLiquidFavicon(frameCount, frameDelay, quality, size, transparent);
 ```
 
 | Parameter   | Default | Description                                |
@@ -57,18 +57,19 @@ window.downloadLiquidFavicon(frameCount, frameDelay, quality, size);
 | frameDelay  | 50      | Delay between frames (milliseconds)        |
 | quality     | 10      | Quality setting (1 = highest, 20 = lowest) |
 | size        | 64      | Output size in pixels                      |
+| transparent | false   | Enable transparent background              |
 
 ### Examples
 
 ```javascript
 // Standard favicon (64x64)
-window.downloadLiquidFavicon(30, 50, 10, 64);
+window.downloadLiquidFavicon(30, 50, 10, 64, false);
 
-// Higher quality animation
-window.downloadLiquidFavicon(60, 100, 1, 128);
+// Higher quality animation with transparent background
+window.downloadLiquidFavicon(60, 100, 1, 128, true);
 
-// Maximum quality (may be large file size)
-window.downloadLiquidFavicon(90, 100, 1, 512);
+// Maximum quality with transparent background
+window.downloadLiquidFavicon(90, 100, 1, 512, true);
 ```
 
 ## License
