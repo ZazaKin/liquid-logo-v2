@@ -1,4 +1,4 @@
-# Liquid Metal Favicon Generator
+# Liquid Metal Favicon Generator + Downloader!
 
 Generate animated liquid metal favicons for your website. This tool allows you to upload your logo and transform it into a shimmering liquid metal animation, perfect for modern websites.
 
