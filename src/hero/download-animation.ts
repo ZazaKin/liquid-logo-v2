@@ -6,17 +6,19 @@ export function captureAnimation(
   frameDelay: number = 50,
   quality: number = 1,
   size: number = 256,
-  transparent: boolean = false
+  transparent: boolean = false,
+  onProgress?: (framesCaptured: number, frameCount: number) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    // Different approaches for transparent vs non-transparent
     const gif = new GIF({
       workers: 4,
       quality: quality,
       width: size,
       height: size,
-      dither: 'FloydSteinberg',
+      //dither: 'FloydSteinberg',
       workerScript: '/gif.worker.js',
-      transparent: transparent ? 0x00000000 : null // Enable transparency if requested
+      transparent: transparent ? 0x00000000 : null // Use fully transparent black
     });
     
     let framesCaptures = 0;
@@ -24,13 +26,15 @@ export function captureAnimation(
     function captureFrame() {
       requestAnimationFrame(() => {
         try {
-          // Create a temporary canvas
+          // Create a temporary canvas with the right size
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = size;
           tempCanvas.height = size;
+          
+          // Create a 2D context with proper settings
           const ctx = tempCanvas.getContext('2d', { 
             willReadFrequently: true,
-            alpha: true
+            alpha: true // Always use alpha channel
           });
           
           if (!ctx) {
@@ -38,25 +42,43 @@ export function captureAnimation(
             return;
           }
           
-          // Clear the context
+          // Clear with transparency
           ctx.clearRect(0, 0, size, size);
           
-          // Looking at the canvas.tsx code, we can see the actual rendering area
-          // is a square with sides of 1000 * devicePixelRatio
-          // The canvas is contained in a div with aspect-square w-400
+          // Use better compositing for transparent images
+          if (transparent) {
+            ctx.globalCompositeOperation = 'source-over';
+          }
           
-          // Instead of trying to calculate the viewport, let's draw the entire canvas
-          // into our temp canvas - this will preserve the exact proportions
+          // Draw the current canvas state to our temporary canvas
+          // Important: preserve aspect ratio
+          const aspectRatio = canvas.width / canvas.height;
+          let drawWidth, drawHeight, offsetX = 0, offsetY = 0;
+          
+          if (aspectRatio >= 1) { // Wider than tall
+            drawWidth = size;
+            drawHeight = size / aspectRatio;
+            offsetY = (size - drawHeight) / 2;
+          } else { // Taller than wide
+            drawHeight = size;
+            drawWidth = size * aspectRatio;
+            offsetX = (size - drawWidth) / 2;
+          }
+          
           ctx.drawImage(
             canvas,
             0, 0, canvas.width, canvas.height,
-            0, 0, size, size
+            offsetX, offsetY, drawWidth, drawHeight
           );
           
-          // Add the frame to the GIF
-          gif.addFrame(tempCanvas, { delay: frameDelay, copy: true });
+          // Add the frame to the GIF with optimized settings
+          gif.addFrame(tempCanvas, { 
+            delay: frameDelay, 
+            copy: true
+          });
           
           framesCaptures++;
+          if (onProgress) onProgress(framesCaptures, frameCount);
           console.log(`Captured frame ${framesCaptures}/${frameCount}`);
           
           if (framesCaptures < frameCount) {

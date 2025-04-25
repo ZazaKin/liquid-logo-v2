@@ -52,6 +52,8 @@ export function Hero({ imageId }: HeroProps) {
 
   const [imageData, setImageData] = useState<ImageData | null>(null);
   const [processing, setProcessing] = useState<boolean>(true);
+  // Progress bar state
+  const [captureProgress, setCaptureProgress] = useState<{ frames: number; total: number; active: boolean }>({ frames: 0, total: 0, active: false });
 
   // Check URL for image ID on mount
   useEffect(() => {
@@ -185,11 +187,31 @@ export function Hero({ imageId }: HeroProps) {
     }
   };
 
-  const handleDownload = () => {
-    if (window.downloadLiquidFavicon) {
-      window.downloadLiquidFavicon(state.frameCount, state.frameDelay, state.quality, state.size, state.transparent);
-    } else {
-      toast.error('Download function not available');
+  const handleDownload = async () => {
+    // Try to get the canvas element used for rendering
+    const canvasElem = document.querySelector('canvas');
+    if (!canvasElem) {
+      toast.error('Canvas not found');
+      return;
+    }
+    setCaptureProgress({ frames: 0, total: state.frameCount, active: true });
+    try {
+      // Dynamically import the captureAnimation function
+      const { captureAnimation, downloadAnimation } = await import('./download-animation');
+      const url = await captureAnimation(
+        canvasElem as HTMLCanvasElement,
+        state.frameCount,
+        state.frameDelay,
+        state.quality,
+        state.size,
+        state.transparent,
+        (frames, total) => setCaptureProgress({ frames, total, active: true })
+      );
+      downloadAnimation(url, 'liquid-metal-favicon.gif');
+    } catch (e) {
+      toast.error('Failed to generate favicon');
+    } finally {
+      setTimeout(() => setCaptureProgress({ frames: 0, total: 0, active: false }), 800);
     }
   };
 
@@ -369,6 +391,7 @@ export function Hero({ imageId }: HeroProps) {
             max={400}
             step={10}
             onValueChange={(value) => setState((state) => ({ ...state, frameCount: value }))}
+            variant="export"
           />
            <Control
             label="Frame Delay"
@@ -377,6 +400,7 @@ export function Hero({ imageId }: HeroProps) {
             max={200}
             step={10}
             onValueChange={(value) => setState((state) => ({ ...state, frameDelay: value }))}
+            variant="export"
           />
            <Control
             label="Quality"
@@ -385,14 +409,16 @@ export function Hero({ imageId }: HeroProps) {
             max={10}
             step={1}
             onValueChange={(value) => setState((state) => ({ ...state, quality: value }))}
+            variant="export"
           />
            <Control
             label="Size"
             value={state.size}
-            min={16}
-            max={512}
-            step={16}
+            min={64}
+            max={2048}
+            step={64}
             onValueChange={(value) => setState((state) => ({ ...state, size: value }))}
+            variant="export"
           />
            <div className="col-span-full flex items-center gap-24">
               <label htmlFor="transparent" className="pr-16 text-nowrap">Transparent</label>
@@ -408,9 +434,25 @@ export function Hero({ imageId }: HeroProps) {
             <button
               onClick={handleDownload}
               className="flex h-40 w-full cursor-pointer items-center justify-center rounded-4 bg-button font-medium select-none"
+              disabled={captureProgress.active}
             >
               Download Favicon
             </button>
+            {captureProgress.active && (
+  <div className="w-full mt-8 flex flex-col items-center">
+    <div className="w-full h-6 bg-white/20 rounded-full overflow-hidden">
+      <div
+        className="h-full bg-blue transition-all duration-200"
+        style={{ width: `${(captureProgress.frames / captureProgress.total) * 100}%` }}
+      />
+    </div>
+    <div className="text-xs text-white/80 mt-2">
+      {captureProgress.frames < captureProgress.total
+        ? `Capturing frames: ${captureProgress.frames} / ${captureProgress.total}`
+        : 'All frames captured, rendering GIF...'}
+    </div>
+  </div>
+)}
           </div>
         </div>
       </div>
@@ -426,9 +468,10 @@ interface ControlProps {
   value: number;
   format?: (value: string) => string;
   onValueChange: (value: number) => void;
+  variant?: 'export' | undefined;
 }
 
-function Control({ label, min, max, step, format, value, onValueChange }: ControlProps) {
+function Control({ label, min, max, step, format, value, onValueChange, variant }: ControlProps) {
   return (
     <>
       <div>
@@ -438,17 +481,31 @@ function Control({ label, min, max, step, format, value, onValueChange }: Contro
       </div>
       <div>
         <Slider.Root min={min} max={max} step={step} value={[value]} onValueChange={([value]) => onValueChange(value)}>
-          <Slider.Track className="relative flex h-32 w-full touch-none items-center rounded-full select-none">
-            <span inert className="absolute inset-x-0 h-6 rounded-full bg-white/20" />
-            <Slider.Range className="absolute h-6 rounded-full bg-blue select-none" />
+          <Slider.Track className={
+            variant === 'export'
+              ? 'relative flex h-10 w-full touch-none items-center rounded-full select-none bg-gradient-to-r from-[#a3e635] via-[#22c55e] to-[#166534] shadow-[0_2px_16px_0_rgba(34,197,94,0.18)] backdrop-blur-md'
+              : 'relative flex h-32 w-full touch-none items-center rounded-full select-none'
+          }>
+            {variant === 'export' && (
+              <span inert={true} className="absolute inset-x-0 h-10 rounded-full bg-gradient-to-r from-[#bbf7d0] via-[#22c55e] to-[#166534] blur-[2px] pointer-events-none" />
+            )}
+            <Slider.Range className={
+              variant === 'export'
+                ? 'absolute h-8 rounded-full bg-gradient-to-r from-[#a3e635] via-[#22c55e] to-[#166534] shadow-[0_2px_24px_0_rgba(34,197,94,0.18)] transition-all duration-300'
+                : 'absolute h-6 rounded-full bg-blue select-none'
+            } />
             <Slider.Thumb
               tabIndex={-1}
-              className="block size-16 rounded-full bg-white outline-focus select-none focus-visible:outline-2"
-              style={{ boxShadow: '0 2px 6px -2px black' }}
+              className={
+                variant === 'export'
+                  ? 'block size-14 rounded-full bg-white/70 backdrop-blur-md shadow-[0_2px_8px_0_rgba(56,189,248,0.12)] outline-none transition-all duration-200 hover:scale-110 focus-visible:ring-2 focus-visible:ring-cyan-200/60'
+                  : 'block size-16 rounded-full bg-white outline-focus select-none focus-visible:outline-2'
+              }
+              style={variant === 'export' ? { boxShadow: '0 2px 12px 0 #bae6fd, 0 1px 4px 0rgb(143, 141, 49)' } : { boxShadow: '0 2px 6px -2px black' }}
             />
           </Slider.Track>
         </Slider.Root>
-      </div>
+      </div> 
       <div className="max-sm:hidden">
         <NumberInput
           id={label}
