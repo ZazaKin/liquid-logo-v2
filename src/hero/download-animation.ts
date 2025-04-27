@@ -1,28 +1,39 @@
 import GIF from 'gif.js';
 
 export function captureAnimation(
-  canvas: HTMLCanvasElement, 
-  frameCount: number = 30, 
+  canvas: HTMLCanvasElement,
+  frameCount: number = 30,
   frameDelay: number = 50,
   quality: number = 1,
   size: number = 256,
   transparent: boolean = false,
+  dither: string = 'none', // Add dither parameter
   onProgress?: (framesCaptured: number, frameCount: number) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Different approaches for transparent vs non-transparent
+    // Map dither values to what gif.js supports
+    let ditherAlgorithm: boolean | string = false;
+    
+    // GIF.js only supports 'FloydSteinberg' or true/false
+    if (dither === 'floydSteinberg') {
+      ditherAlgorithm = 'FloydSteinberg';
+    } else if (dither !== 'none') {
+      // For any other dither type, just enable dithering
+      ditherAlgorithm = true;
+    }
+
     const gif = new GIF({
       workers: 4,
       quality: quality,
       width: size,
       height: size,
-      //dither: 'FloydSteinberg',
+      dither: ditherAlgorithm as boolean | 'FloydSteinberg' | undefined, // Use the mapped dither algorithm
       workerScript: '/gif.worker.js',
       transparent: transparent ? 0x00000000 : null // Use fully transparent black
     });
-    
+
     let framesCaptures = 0;
-    
+
     function captureFrame() {
       requestAnimationFrame(() => {
         try {
@@ -72,24 +83,25 @@ export function captureAnimation(
           );
           
           // Add the frame to the GIF with optimized settings
-          gif.addFrame(tempCanvas, { 
-            delay: frameDelay, 
+          gif.addFrame(tempCanvas, {
+            delay: frameDelay,
             copy: true
           });
-          
+
           framesCaptures++;
           if (onProgress) onProgress(framesCaptures, frameCount);
-          console.log(`Captured frame ${framesCaptures}/${frameCount}`);
-          
+          // console.log(`Captured frame ${framesCaptures}/${frameCount}`); // Optional: uncomment for debugging
+
           if (framesCaptures < frameCount) {
-            setTimeout(captureFrame, frameDelay);
+            // Use setTimeout for delay, not requestAnimationFrame again immediately
+            setTimeout(captureFrame, 1); // Minimal delay to allow UI updates
           } else {
             console.log('All frames captured, rendering GIF...');
             gif.on('finished', (blob: Blob) => {
               console.log(`GIF generated: ${blob.size} bytes`);
               resolve(URL.createObjectURL(blob));
             });
-            
+
             gif.render();
           }
         } catch (error) {
@@ -98,7 +110,8 @@ export function captureAnimation(
         }
       });
     }
-    
+
+    // Start the first frame capture
     captureFrame();
   });
 }

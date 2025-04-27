@@ -13,6 +13,7 @@ uniform float u_refraction;
 uniform float u_edge;
 uniform float u_patternBlur;
 uniform float u_liquid;
+uniform int u_ditherType; // 0: none, 1: bayer2x2, 2: bayer4x4, 3: bayer8x8, 4: floyd (placeholder)
 
 
 #define TWO_PI 6.28318530718
@@ -44,6 +45,22 @@ float snoise(vec2 v) {
     g.x = a0.x * x0.x + h.x * x0.y;
     g.yz = a0.yz * x12.xz + h.yz * x12.yw;
     return 130. * dot(m, g);
+}
+
+// Bayer matrix for ordered dithering
+const mat4 bayerMatrix = mat4(
+    0.0/16.0, 8.0/16.0, 2.0/16.0, 10.0/16.0,
+    12.0/16.0, 4.0/16.0, 14.0/16.0, 6.0/16.0,
+    3.0/16.0, 11.0/16.0, 1.0/16.0, 9.0/16.0,
+    15.0/16.0, 7.0/16.0, 13.0/16.0, 5.0/16.0
+);
+
+// Apply dithering to a color channel
+float applyDither(float color, vec2 pos) {
+    int x = int(mod(pos.x, 4.0));
+    int y = int(mod(pos.y, 4.0));
+    float threshold = bayerMatrix[x][y];
+    return step(threshold, color);
 }
 
 vec2 get_img_uv() {
@@ -97,6 +114,94 @@ float get_img_frame_alpha(vec2 uv, float img_frame_width) {
     img_frame_alpha *= smoothstep(0., img_frame_width, uv.y) * smoothstep(1., 1. - img_frame_width, uv.y);
     return img_frame_alpha;
 }
+
+// Bayer matrices
+// --- Dithering Matrices ---
+
+// Bayer 2x2 Matrix
+const mat2 bayer2x2 = mat2(
+    0.0/4.0, 2.0/4.0,
+    3.0/4.0, 1.0/4.0
+);
+
+// Bayer 4x4 Matrix
+const mat4 bayer4x4 = mat4(
+     0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+    12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+     3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+    15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+);
+
+// Function to get Bayer 8x8 threshold mathematically
+// (Based on https://en.wikipedia.org/wiki/Ordered_dithering#Algorithm)
+// Optimized Bayer 8x8 calculation
+float getBayer8x8Value(ivec2 p) {
+    // Calculate 8x8 Bayer matrix value using bit operations
+    // This is more efficient than using a lookup array
+    int x = p.x & 7; // Equivalent to p.x % 8
+    int y = p.y & 7; // Equivalent to p.y % 8
+    
+    // Calculate using bit interleaving pattern
+    // Based on the recursive definition of the Bayer matrix
+    int result = 0;
+    
+    // Interleave bits from x and y coordinates
+    for (int bit = 0; bit < 3; bit++) {
+        result = result | (((x >> bit) & 1) << (bit * 2));
+        result = result | (((y >> bit) & 1) << (bit * 2 + 1));
+    }
+    
+    return float(result) / 64.0;
+}
+
+// Approximate Floyd-Steinberg dithering in a single pass
+// True Floyd-Steinberg requires multiple passes for error diffusion
+float getFloydSteinbergValue(vec2 pos) {
+    // We can't do true error diffusion in a fragment shader,
+    // but we can create a pattern that visually resembles it
+    
+    // Use a combination of noise and position to create a more organic pattern
+    float noise = fract(sin(dot(pos * 0.01, vec2(12.9898, 78.233))) * 43758.5453);
+    
+    // Add some structured variation based on position
+    float pattern = fract((pos.x * 0.13) + (pos.y * 0.17) + noise * 0.1);
+    
+    // Make the pattern more visually similar to Floyd-Steinberg
+    // by adding some diagonal bias
+    float diagonalBias = fract((pos.x + pos.y) * 0.11);
+    
+    return mix(pattern, diagonalBias, 0.4);
+}
+
+// Get dither threshold based on type and screen position
+float getDitherThreshold(vec2 screenPos) {
+    if (u_ditherType == 1) { // Bayer 2x2
+        ivec2 p = ivec2(mod(screenPos, 2.0));
+        return bayer2x2[p.x][p.y];
+    } else if (u_ditherType == 2) { // Bayer 4x4
+        ivec2 p = ivec2(mod(screenPos, 4.0));
+        return bayer4x4[p.x][p.y];
+    } else if (u_ditherType == 3) { // Bayer 8x8
+        ivec2 p = ivec2(mod(screenPos, 8.0));
+        return getBayer8x8Value(p);
+    } else if (u_ditherType == 4) { // Floyd-Steinberg approximation
+        return getFloydSteinbergValue(screenPos);
+    }
+    // u_ditherType == 0 (None) or unknown: Return high threshold to effectively disable dithering
+    return 1.0;
+}
+
+// Apply dithering with adjustable intensity
+float applyDitherStep(float colorVal, float threshold) {
+    // For GIF compatibility, use a slightly softer transition
+    // This helps the GIF encoder process the dithered image
+    return smoothstep(threshold - 0.02, threshold + 0.02, colorVal);
+}
+
+// --- End Dithering ---
+
+// ... get_img_uv, rotate, get_color_channel, get_img_frame_alpha functions ...
+// REMOVE the duplicate Bayer matrix definitions here if they exist
 
 void main() {
     vec2 uv = vUv;
@@ -196,6 +301,25 @@ void main() {
 
     color = vec3(r, g, b);
 
+    // Apply dithering effect only if a type is selected (not 'none')
+    if (u_ditherType > 0) {
+        vec2 screenPos = gl_FragCoord.xy;
+        float threshold = getDitherThreshold(screenPos);
+        
+        // Apply dither before opacity multiplication
+        // Use a safer approach that's more compatible with GIF export
+        if (opacity > 0.05) { // Only apply dithering to more visible pixels
+            // Limit the color range slightly to avoid extreme values
+            vec3 safeColor = clamp(color, 0.01, 0.99);
+            
+            // Apply dithering with a slightly softer transition
+            color.r = mix(safeColor.r, applyDitherStep(safeColor.r, threshold), 0.95);
+            color.g = mix(safeColor.g, applyDitherStep(safeColor.g, threshold), 0.95);
+            color.b = mix(safeColor.b, applyDitherStep(safeColor.b, threshold), 0.95);
+        }
+    }
+
+    // Now apply the opacity
     color *= opacity;
 
     fragColor = vec4(color, opacity);

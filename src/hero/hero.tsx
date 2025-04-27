@@ -21,12 +21,34 @@ type State = ShaderParams & {
   background: string;
   frameCount: number;
   frameDelay: number;
+  framerate: number | 'custom'; // Add framerate to state
   quality: number;
   size: number;
   transparent: boolean;
+  effects: {
+    dither: string;
+    noiseAmount: number;
+    threshold: number;
+    invert: boolean;
+  }
 };
 
-const defaultState: State = { ...defaultParams, background: 'metal', frameCount: 60, frameDelay: 50, quality: 5, size: 64, transparent: true };
+const defaultState: State = { 
+  ...defaultParams, 
+  background: 'metal', 
+  frameCount: 60, 
+  frameDelay: 50, 
+  framerate: 'custom', // Default to custom since 50ms doesn't match standard framerates
+  quality: 5, 
+  size: 512, 
+  transparent: true,
+  effects: {
+    dither: 'none',
+    noiseAmount: 0,
+    threshold: 0,
+    invert: false
+  }
+};
 
 declare global {
   interface Window {
@@ -39,6 +61,26 @@ declare global {
     ) => void;
   }
 }
+
+// Add a helper function to convert framerate to delay
+const framerateToDelay = (fps: number): number => {
+  return Math.round(1000 / fps);
+};
+
+// Add a helper function to find closest framerate from delay
+const delayToFramerate = (delay: number): number | 'custom' => {
+  const standardFramerates = [12, 24, 25, 30, 60, 120];
+  const targetFps = 1000 / delay;
+  
+  // Check if it's very close to a standard framerate
+  for (const fps of standardFramerates) {
+    if (Math.abs(fps - targetFps) < 0.1) {
+      return fps;
+    }
+  }
+  
+  return 'custom';
+};
 
 export function Hero({ imageId }: HeroProps) {
   const [state, setState] = useState<State>(defaultState);
@@ -86,23 +128,37 @@ export function Hero({ imageId }: HeroProps) {
   useEffect(() => {
     stateRef.current = state;
 
-    // Debounce the history updates (Safari doesn't like frequent URL updates)
+    // Debounce the history updates
     const timeoutId = setTimeout(() => {
       const searchParams = new URLSearchParams();
 
       Object.entries(stateRef.current).forEach(([key, value]) => {
-        if (typeof value === 'number') {
+        // Handle nested 'effects' object
+        if (key === 'effects' && typeof value === 'object' && value !== null) {
+          Object.entries(value).forEach(([effectKey, effectValue]) => {
+            const paramKey = `effects.${effectKey}`; // e.g., effects.dither
+            if (typeof effectValue === 'number') {
+              searchParams.set(paramKey, roundOptimized(effectValue, 4).toString());
+            } else if (typeof effectValue === 'boolean') {
+              searchParams.set(paramKey, effectValue.toString());
+            } else {
+              searchParams.set(paramKey, effectValue as string);
+            }
+          });
+        } else if (typeof value === 'number') { // Handle top-level numbers
           searchParams.set(key, roundOptimized(value, 4).toString());
-        } else if (typeof value === 'boolean') {
+        } else if (typeof value === 'boolean') { // Handle top-level booleans
            searchParams.set(key, value.toString());
-        } else {
-          searchParams.set(key, value);
+        } else if (typeof value === 'string') { // Handle top-level strings
+           searchParams.set(key, value);
         }
+        // Ignore other types for URL params for now
       });
 
       searchParamsPendingUpdate.current = false;
+      // Use pushState or replaceState as needed. replaceState avoids polluting history.
       window.history.replaceState({}, '', pathname + '?' + searchParams.toString());
-    }, 250); // Add 250ms delay between updates
+    }, 250);
 
     return () => clearTimeout(timeoutId);
   }, [state, pathname]);
@@ -112,46 +168,75 @@ export function Hero({ imageId }: HeroProps) {
       return;
     }
 
-    const paramsState: any = {};
-    let isEqual = true;
+    const paramsState: Partial<State> = {}; // Use Partial<State>
+    const effectsState: Partial<State['effects']> = {}; // For collecting effects
+    let paramsChanged = false;
 
     for (const [key, value] of searchParams.entries()) {
-      if (!(key in state)) {
-        continue;
-      }
+       let parsedValue: any = value;
+       let targetKey: string = key;
+       let isEffectParam = false;
 
-      let parsedValue: any = value;
-      if (key in defaultParams) {
-         const number = parseFloat(value);
-         parsedValue = Number.isNaN(number) ? value : number;
-      } else if (key === 'transparent') {
-          parsedValue = value === 'true';
-      } else if (key === 'frameCount' || key === 'frameDelay' || key === 'quality' || key === 'size') {
-         const number = parseInt(value);
-         parsedValue = Number.isNaN(number) ? value : number;
-      }
+       // Check if it's an effect parameter
+       if (key.startsWith('effects.')) {
+           targetKey = key.substring('effects.'.length); // Get the actual effect key (e.g., 'dither')
+           isEffectParam = true;
+           // Parse effect value based on default type (improve this if needed)
+           if (targetKey === 'noiseAmount' || targetKey === 'threshold') {
+               const number = parseFloat(value);
+               parsedValue = Number.isNaN(number) ? defaultState.effects[targetKey as keyof State['effects']] : number;
+           } else if (targetKey === 'invert') {
+               parsedValue = value === 'true';
+           } // 'dither' remains a string
+       } else if (key in defaultParams) { // Top-level numeric params
+           const number = parseFloat(value);
+           parsedValue = Number.isNaN(number) ? defaultState[key as keyof ShaderParams] : number;
+       } else if (key === 'transparent') { // Top-level boolean
+           parsedValue = value === 'true';
+       } else if (['frameCount', 'frameDelay', 'quality', 'size'].includes(key)) { // Top-level integers
+           const number = parseInt(value);
+           parsedValue = Number.isNaN(number) ? defaultState[key as keyof State] : number;
+       } else if (key === 'background') { // Top-level string
+           // parsedValue remains 'value'
+       } else {
+           continue; // Ignore unknown keys
+       }
 
-
-      // @ts-ignore
-      let currentValue = stateRef.current[key];
-      // Match the precision of the params
-      if (typeof currentValue === 'number') {
-        currentValue = roundOptimized(currentValue, 4);
-      }
-
-      if (parsedValue !== currentValue) {
-        isEqual = false;
-      }
-       // @ts-ignore
-      paramsState[key] = parsedValue;
-
+       // Compare and update state
+       let currentValue: any;
+       if (isEffectParam) {
+           currentValue = stateRef.current.effects[targetKey as keyof State['effects']];
+           if (parsedValue !== currentValue) {
+               effectsState[targetKey as keyof State['effects']] = parsedValue;
+               paramsChanged = true;
+           }
+       } else {
+           currentValue = stateRef.current[targetKey as keyof State];
+           // Match precision for numbers before comparing
+           if (typeof currentValue === 'number' && typeof parsedValue === 'number') {
+               if (roundOptimized(currentValue, 4) !== roundOptimized(parsedValue, 4)) {
+                   (paramsState as any)[targetKey] = parsedValue;
+                   paramsChanged = true;
+               }
+           } else if (parsedValue !== currentValue) {
+               (paramsState as any)[targetKey] = parsedValue;
+               paramsChanged = true;
+           }
+       }
     }
 
-    if (isEqual === false) {
+    if (paramsChanged) {
       console.log('Updating state from URL params');
-      setState((state) => ({ ...state, ...paramsState }));
+      setState((currentState) => ({
+          ...currentState,
+          ...paramsState, // Apply top-level changes
+          effects: { // Merge effects changes
+              ...currentState.effects,
+              ...effectsState
+          }
+      }));
     }
-  }, [searchParams]); // Removed state from dependencies
+  }, [searchParams, pathname]); // Added pathname dependency
 
   const handleFileInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -205,10 +290,12 @@ export function Hero({ imageId }: HeroProps) {
         state.quality,
         state.size,
         state.transparent,
+        state.effects.dither, // Pass dither state here
         (frames, total) => setCaptureProgress({ frames, total, active: true })
       );
       downloadAnimation(url, 'liquid-metal-favicon.gif');
     } catch (e) {
+      console.error('Failed to generate favicon:', e); // Log the error
       toast.error('Failed to generate favicon');
     } finally {
       setTimeout(() => setCaptureProgress({ frames: 0, total: 0, active: false }), 800);
@@ -244,16 +331,20 @@ export function Hero({ imageId }: HeroProps) {
         className="flex aspect-square w-full items-center justify-center rounded-10"
         style={{
           background: (() => {
-            switch (state.background) {
-              case 'metal':
-                return 'linear-gradient(to bottom, #eee, #b8b8b8)';
+            if (typeof state.background === 'string') {
+              switch (state.background) {
+                case 'metal':
+                  return 'linear-gradient(to bottom, #eee, #b8b8b8)';
+                default:
+                  return state.background;
+              }
             }
-            return state.background;
+            return 'black'; // Default fallback if background is not a string
           })(),
         }}
       >
         <div className="aspect-square w-400">
-          {imageData && <Canvas imageData={imageData} params={state} processing={processing} />}
+          {imageData && <Canvas imageData={imageData} params={state} processing={processing} effects={state.effects} />}
         </div>
       </div>
 
@@ -382,6 +473,69 @@ export function Hero({ imageId }: HeroProps) {
           </div>
         </div>
 
+        {/* Effects Controls Section */}
+        <div className="grid auto-rows-[minmax(40px,auto)] grid-cols-[auto_200px] items-center gap-x-24 gap-y-12 rounded-8 p-16 outline outline-white/20 sm:grid-cols-[auto_160px_100px]">
+          <div>
+            <label className="pr-16 text-nowrap">Dither</label>
+          </div>
+          <div className="flex h-40 items-center gap-9 sm:col-span-2">
+            <select 
+              className="w-full h-full bg-black text-white border border-white/30 rounded-4 px-8"
+              value={state.effects.dither}
+              onChange={(e) => setState({ 
+                ...state, 
+                effects: { ...state.effects, dither: e.target.value } 
+              })}
+            >
+              <option value="none">None</option>
+              <option value="bayer2x2">Bayer 2x2</option>
+              <option value="bayer4x4">Bayer 4x4</option>
+              <option value="bayer8x8">Bayer 8x8</option>
+              <option value="floydSteinberg">Floyd-Steinberg</option>
+            </select>
+          </div>
+
+          <Control
+            label="Noise"
+            value={state.effects.noiseAmount}
+            min={0}
+            max={1}
+            step={0.01}
+            onValueChange={(value) => setState((state) => ({ 
+              ...state, 
+              effects: { ...state.effects, noiseAmount: value } 
+            }))}
+            variant="effects"
+          />
+
+          <Control
+            label="Threshold"
+            value={state.effects.threshold}
+            min={0}
+            max={1}
+            step={0.01}
+            onValueChange={(value) => setState((state) => ({ 
+              ...state, 
+              effects: { ...state.effects, threshold: value } 
+            }))}
+            variant="effects"
+          />
+
+          <div className="col-span-full flex items-center gap-24">
+            <label htmlFor="invert" className="pr-16 text-nowrap">Invert Colors</label>
+            <input
+              type="checkbox"
+              id="invert"
+              checked={state.effects.invert}
+              onChange={(e) => setState({ 
+                ...state, 
+                effects: { ...state.effects, invert: e.target.checked } 
+              })}
+              className="size-18 cursor-pointer rounded-full text-[0px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            />
+          </div>
+        </div>
+
         {/* Download Controls Section */}
         <div className="grid auto-rows-[minmax(40px,auto)] grid-cols-[auto_200px] items-center gap-x-24 gap-y-12 rounded-8 p-16 outline outline-white/20 sm:grid-cols-[auto_160px_100px]">
            <Control
@@ -414,9 +568,9 @@ export function Hero({ imageId }: HeroProps) {
            <Control
             label="Size"
             value={state.size}
-            min={64}
+            min={256}
             max={2048}
-            step={64}
+            step={256}
             onValueChange={(value) => setState((state) => ({ ...state, size: value }))}
             variant="export"
           />
@@ -468,10 +622,13 @@ interface ControlProps {
   value: number;
   format?: (value: string) => string;
   onValueChange: (value: number) => void;
-  variant?: 'export' | undefined;
+  variant?: 'export' | 'effects' | undefined;
 }
 
 function Control({ label, min, max, step, format, value, onValueChange, variant }: ControlProps) {
+  // Ensure value is a number to prevent toString() on undefined
+  const safeValue = typeof value === 'number' ? value : min || 0;
+  
   return (
     <>
       <div>
@@ -480,7 +637,7 @@ function Control({ label, min, max, step, format, value, onValueChange, variant 
         </label>
       </div>
       <div>
-        <Slider.Root min={min} max={max} step={step} value={[value]} onValueChange={([value]) => onValueChange(value)}>
+        <Slider.Root min={min} max={max} step={step} value={[safeValue]} onValueChange={([value]) => onValueChange(value)}>
           <Slider.Track className={
             variant === 'export'
               ? 'relative flex h-10 w-full touch-none items-center rounded-full select-none bg-gradient-to-r from-[#a3e635] via-[#22c55e] to-[#166534] shadow-[0_2px_16px_0_rgba(34,197,94,0.18)] backdrop-blur-md'
@@ -514,7 +671,7 @@ function Control({ label, min, max, step, format, value, onValueChange, variant 
           increments={[step, step * 10]}
           format={format}
           className="h-40 w-full rounded-4 bg-white/15 pl-12 text-sm tabular-nums outline-white/20 focus:outline-2 focus:-outline-offset-1 focus:outline-blue"
-          value={value.toString()}
+          value={safeValue.toString()}
           onValueCommit={(value) => onValueChange(parseFloat(value))}
         />
       </div>

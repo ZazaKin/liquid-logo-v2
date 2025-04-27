@@ -35,14 +35,33 @@ export type ShaderParams = {
   speed: number;
 };
 
+export type Effects = {
+  dither: string;
+  noiseAmount: number;
+  threshold: number;
+  invert: boolean;
+};
+
+// Map dither string names to integer codes for the shader
+const ditherTypeMap: { [key: string]: number } = {
+  'none': 0,
+  'bayer2x2': 1,
+  'bayer4x4': 2,
+  'bayer8x8': 3, // Using 4x4 matrix in shader for now
+  'floydSteinberg': 4 // Using 4x4 matrix in shader for now
+};
+
+
 export function Canvas({
   imageData,
   params,
   processing,
+  effects, // Add effects prop
 }: {
   imageData: ImageData;
   params: ShaderParams;
   processing: boolean;
+  effects: Effects; // Use the defined Effects type
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gl, setGl] = useState<WebGL2RenderingContext | null>(null);
@@ -55,10 +74,18 @@ export function Canvas({
     if (!gl || !uniforms) return;
     gl.uniform1f(uniforms.u_edge, params.edge);
     gl.uniform1f(uniforms.u_patternBlur, params.patternBlur);
-    gl.uniform1f(uniforms.u_time, 0);
+    // u_time is updated in the render loop
     gl.uniform1f(uniforms.u_patternScale, params.patternScale);
     gl.uniform1f(uniforms.u_refraction, params.refraction);
     gl.uniform1f(uniforms.u_liquid, params.liquid);
+
+    // Update effects uniforms
+    const ditherCode = ditherTypeMap[effects.dither] ?? 0; // Default to 0 (none)
+    gl.uniform1i(uniforms.u_ditherType, ditherCode);
+    // Add other effects uniforms here if needed (noise, threshold, invert)
+    // gl.uniform1f(uniforms.u_noiseAmount, effects.noiseAmount);
+    // gl.uniform1f(uniforms.u_threshold, effects.threshold);
+    // gl.uniform1i(uniforms.u_invert, effects.invert ? 1 : 0);
   }
 
   useEffect(() => {
@@ -110,17 +137,30 @@ export function Canvas({
       }
 
       function getUniforms(program: WebGLProgram, gl: WebGL2RenderingContext) {
-        let uniforms: Record<string, WebGLUniformLocation> = {};
+        let uniformsMap: Record<string, WebGLUniformLocation> = {}; // Renamed to avoid conflict
         let uniformCount = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
         for (let i = 0; i < uniformCount; i++) {
-          let uniformName = gl.getActiveUniform(program, i)?.name;
-          if (!uniformName) continue;
-          uniforms[uniformName] = gl.getUniformLocation(program, uniformName) as WebGLUniformLocation;
+          let uniformInfo = gl.getActiveUniform(program, i); // Get ActiveUniformInfo
+          if (!uniformInfo || !uniformInfo.name) continue;
+          const location = gl.getUniformLocation(program, uniformInfo.name);
+          if (location) { // Check if location is not null
+             uniformsMap[uniformInfo.name] = location;
+          } else {
+             console.warn(`Could not get location for uniform: ${uniformInfo.name}`);
+          }
         }
-        return uniforms;
+        // Ensure essential uniforms are present
+        const requiredUniforms = ['u_ditherType', /* other required uniforms */];
+        for (const name of requiredUniforms) {
+            if (!uniformsMap[name]) {
+                console.error(`Required uniform "${name}" not found or location is null.`);
+                // Potentially throw an error or handle gracefully
+            }
+        }
+        return uniformsMap;
       }
-      const uniforms = getUniforms(program, gl);
-      setUniforms(uniforms);
+      const fetchedUniforms = getUniforms(program, gl); // Renamed variable
+      setUniforms(fetchedUniforms); // Set the fetched uniforms
 
       // Vertex position
       const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
@@ -140,15 +180,15 @@ export function Canvas({
     }
 
     initShader();
-    updateUniforms();
-  }, []);
+    // updateUniforms(); // Initial update is now handled by the dependency effect below
+  }, []); // Keep dependencies minimal for init
 
-  // Keep uniforms updated
+
+  // Keep uniforms updated when params or effects change
   useEffect(() => {
-    if (!gl || !uniforms) return;
-
+    if (!gl || !uniforms || Object.keys(uniforms).length === 0) return; // Ensure uniforms are populated
     updateUniforms();
-  }, [gl, params, uniforms]);
+  }, [gl, params, effects, uniforms]); // Add effects and uniforms as dependencies
 
   // Render every frame
   useEffect(() => {
@@ -265,13 +305,17 @@ export function Canvas({
       console.log(`Starting capture: ${frameCount} frames, ${frameDelay}ms delay, quality ${quality}, size ${size}px, transparent: ${transparent}`);
       toast.info('Starting GIF capture...');
       
+      // Get current dither setting from effects or use 'none' as default
+      const dither = effects?.dither || 'none';
+      
       const animationUrl = await captureAnimation(
         canvasRef.current, 
         frameCount, 
         frameDelay, 
         quality,
         size,
-        transparent
+        transparent,
+        dither // Pass the dither parameter
       );
       
       console.log('Capture complete, downloading...');
