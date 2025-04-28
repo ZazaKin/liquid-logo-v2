@@ -35,22 +35,32 @@ export type ShaderParams = {
   speed: number;
 };
 
-export type Effects = {
-  dither: string;
-  noiseAmount: number;
-  threshold: number;
-  invert: boolean;
-};
-
 // Map dither string names to integer codes for the shader
 const ditherTypeMap: { [key: string]: number } = {
   'none': 0,
   'bayer2x2': 1,
   'bayer4x4': 2,
-  'bayer8x8': 3, // Using 4x4 matrix in shader for now
-  'floydSteinberg': 4 // Using 4x4 matrix in shader for now
+  'bayer8x8': 3,
+  'floydSteinberg': 4,
+  'random': 5,
+  'halftone': 6
 };
 
+// Map halftone type string names to integer codes for the shader
+const halftoneTypeMap: { [key: string]: number } = {
+  'circles': 0,
+  'lines': 1,
+  'diamonds': 2,
+  'crosses': 3,
+  'dots': 4
+};
+
+export type Effects = {
+  dither: string;
+  ditherIntensity: number;
+  halftoneType?: string;
+  halftoneSize?: number; // Add optional halftone size
+};
 
 export function Canvas({
   imageData,
@@ -78,14 +88,16 @@ export function Canvas({
     gl.uniform1f(uniforms.u_patternScale, params.patternScale);
     gl.uniform1f(uniforms.u_refraction, params.refraction);
     gl.uniform1f(uniforms.u_liquid, params.liquid);
-
+  
     // Update effects uniforms
     const ditherCode = ditherTypeMap[effects.dither] ?? 0; // Default to 0 (none)
     gl.uniform1i(uniforms.u_ditherType, ditherCode);
-    // Add other effects uniforms here if needed (noise, threshold, invert)
-    // gl.uniform1f(uniforms.u_noiseAmount, effects.noiseAmount);
-    // gl.uniform1f(uniforms.u_threshold, effects.threshold);
-    // gl.uniform1i(uniforms.u_invert, effects.invert ? 1 : 0);
+    gl.uniform1f(uniforms.u_ditherIntensity, effects.ditherIntensity || 1.0);
+    
+    // Add halftone type and size uniforms
+    const halftoneTypeCode = halftoneTypeMap[effects.halftoneType || 'circles'] ?? 0;
+    gl.uniform1i(uniforms.u_halftoneType, halftoneTypeCode);
+    gl.uniform1f(uniforms.u_halftoneSize, effects.halftoneSize || 0.15); // Default to 0.15 if not provided
   }
 
   useEffect(() => {

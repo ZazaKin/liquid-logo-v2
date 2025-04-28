@@ -7,7 +7,10 @@ export function captureAnimation(
   quality: number = 1,
   size: number = 256,
   transparent: boolean = false,
-  dither: string = 'none', // Add dither parameter
+  dither: string = 'none',
+  ditherIntensity: number = 1.0,
+  halftoneType: string = 'circles',
+  halftoneSize: number = 0.15, // Add halftone size parameter
   onProgress?: (framesCaptured: number, frameCount: number) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {

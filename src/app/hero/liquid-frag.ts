@@ -13,8 +13,10 @@ uniform float u_refraction;
 uniform float u_edge;
 uniform float u_patternBlur;
 uniform float u_liquid;
-uniform int u_ditherType; // 0: none, 1: bayer2x2, 2: bayer4x4, 3: bayer8x8, 4: floyd (placeholder)
-
+uniform int u_ditherType; // 0: none, 1: bayer2x2, 2: bayer4x4, 3: bayer8x8, 4: floyd, 5: random, 6: halftone
+uniform float u_ditherIntensity; // Controls dithering strength
+uniform int u_halftoneType; // 0: circles, 1: lines, 2: diamonds, 3: crosses, 4: dots
+uniform float u_halftoneSize; // Controls the size of halftone pattern
 
 #define TWO_PI 6.28318530718
 #define PI 3.14159265358979323846
@@ -173,6 +175,103 @@ float getFloydSteinbergValue(vec2 pos) {
     return mix(pattern, diagonalBias, 0.4);
 }
 
+// Simple pseudo-random noise function for dithering
+float getRandomNoiseValue(vec2 pos) {
+    // Use a simple hash function based on screen position
+    // fract(sin(dot(coordinate, vec2(12.9898, 78.233))) * 43758.5453); is a common one
+    return fract(sin(dot(pos, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+
+// Add halftone dithering pattern with different types
+float getHalftoneValue(vec2 pos) {
+    // Scale the position to control the size of the dots
+    // Smaller u_halftoneSize value = larger dots
+    float dotScale = u_halftoneSize; 
+    
+    // Create different rotation angles for each halftone type
+    // This creates a more natural look by avoiding perfect alignment with pixels
+    float angle = 0.0;
+    
+    if (u_halftoneType == 0) { // Circles - classic 45° rotation
+        angle = 0.785398; // 45 degrees in radians
+    } else if (u_halftoneType == 1) { // Lines - slight angle for natural look
+        angle = 0.087266; // 5 degrees in radians
+    } else if (u_halftoneType == 2) { // Diamonds - 15° rotation
+        angle = 0.261799; // 15 degrees in radians
+    } else if (u_halftoneType == 3) { // Crosses - 30° rotation
+        angle = 0.523599; // 30 degrees in radians
+    } else if (u_halftoneType == 4) { // Dots - 60° rotation
+        angle = 1.0472; // 60 degrees in radians
+    }
+    
+    // Apply rotation to create a more natural pattern
+    vec2 rotatedPos = vec2(
+        pos.x * cos(angle) - pos.y * sin(angle),
+        pos.x * sin(angle) + pos.y * cos(angle)
+    );
+    
+    // Scale the position based on the pattern type
+    vec2 scaledPos = rotatedPos * dotScale;
+    
+    // Add subtle variation to the grid to break up the mechanical look
+    // This creates a more organic feel similar to real printing
+    float variation = snoise(scaledPos * 0.1) * 0.05;
+    scaledPos += variation;
+    
+    // Create a grid of dots with slight irregularity
+    vec2 grid = fract(scaledPos) - 0.5;
+    
+    // Add a subtle warping effect to the grid
+    // This simulates the imperfections in real printing processes
+    float warpAmount = 0.03;
+    grid += warpAmount * vec2(
+        sin(scaledPos.y * 3.0),
+        sin(scaledPos.x * 2.7)
+    );
+    
+    float dist = 0.0;
+    float threshold = 0.0;
+    float edgeSoftness = 0.0;
+    
+    // Different halftone patterns based on type
+    if (u_halftoneType == 0) { // Circles (classic halftone)
+        dist = length(grid);
+        threshold = 0.25;
+        edgeSoftness = 0.07; // Softer edges for more natural look
+    } 
+    else if (u_halftoneType == 1) { // Lines
+        // Use sine wave for more natural line pattern
+        dist = 0.5 - 0.5 * sin(grid.y * PI * 2.0 + scaledPos.x * 0.2);
+        threshold = 0.5;
+        edgeSoftness = 0.1;
+    }
+    else if (u_halftoneType == 2) { // Diamonds
+        dist = abs(grid.x) + abs(grid.y);
+        threshold = 0.3;
+        edgeSoftness = 0.08;
+    }
+    else if (u_halftoneType == 3) { // Crosses
+        // Create cross pattern with variable thickness
+        float xDist = abs(grid.x);
+        float yDist = abs(grid.y);
+        float crossThickness = 0.15 + 0.05 * sin(scaledPos.x * 0.5);
+        dist = min(xDist, yDist);
+        threshold = crossThickness;
+        edgeSoftness = 0.05;
+    }
+    else if (u_halftoneType == 4) { // Dots (smaller, more varied)
+        // Create varied dot sizes
+        dist = length(grid);
+        // Vary the threshold based on position for more organic look
+        threshold = 0.2 + 0.05 * sin(scaledPos.x * 0.7 + scaledPos.y * 0.9);
+        edgeSoftness = 0.04;
+    }
+    
+    // Apply smoothstep with variable edge softness for more natural transitions
+    return smoothstep(threshold - edgeSoftness, threshold + edgeSoftness, dist);
+}
+
 // Get dither threshold based on type and screen position
 float getDitherThreshold(vec2 screenPos) {
     if (u_ditherType == 1) { // Bayer 2x2
@@ -186,6 +285,10 @@ float getDitherThreshold(vec2 screenPos) {
         return getBayer8x8Value(p);
     } else if (u_ditherType == 4) { // Floyd-Steinberg approximation
         return getFloydSteinbergValue(screenPos);
+    } else if (u_ditherType == 5) { // Random Noise
+        return getRandomNoiseValue(screenPos);
+    } else if (u_ditherType == 6) { // Halftone
+        return getHalftoneValue(screenPos);
     }
     // u_ditherType == 0 (None) or unknown: Return high threshold to effectively disable dithering
     return 1.0;
@@ -193,9 +296,28 @@ float getDitherThreshold(vec2 screenPos) {
 
 // Apply dithering with adjustable intensity
 float applyDitherStep(float colorVal, float threshold) {
-    // For GIF compatibility, use a slightly softer transition
-    // This helps the GIF encoder process the dithered image
-    return smoothstep(threshold - 0.02, threshold + 0.02, colorVal);
+    float dithered;
+    
+    // For halftone specifically, we want a more sophisticated approach
+    if (u_ditherType == 6) {
+        // For halftone, we want to preserve more of the original image detail
+        // while still creating a halftone effect
+        
+        // Map the color value to control dot size
+        // This creates a more traditional halftone look where darker areas
+        // have larger dots and lighter areas have smaller dots
+        float adjustedThreshold = mix(0.7, 0.3, colorVal) * threshold;
+        
+        // Apply a softer transition for halftones
+        float softness = 0.15;
+        dithered = smoothstep(adjustedThreshold - softness, adjustedThreshold + softness, 0.5);
+    } else {
+        // For other dither types, use standard approach
+        dithered = step(threshold, colorVal);
+    }
+    
+    // Mix between original color and dithered color based on intensity
+    return mix(colorVal, dithered, u_ditherIntensity);
 }
 
 // --- End Dithering ---
@@ -312,10 +434,10 @@ void main() {
             // Limit the color range slightly to avoid extreme values
             vec3 safeColor = clamp(color, 0.01, 0.99);
             
-            // Apply dithering with a slightly softer transition
-            color.r = mix(safeColor.r, applyDitherStep(safeColor.r, threshold), 0.95);
-            color.g = mix(safeColor.g, applyDitherStep(safeColor.g, threshold), 0.95);
-            color.b = mix(safeColor.b, applyDitherStep(safeColor.b, threshold), 0.95);
+            // Apply dithering with adjustable intensity
+            color.r = applyDitherStep(safeColor.r, threshold);
+            color.g = applyDitherStep(safeColor.g, threshold);
+            color.b = applyDitherStep(safeColor.b, threshold);
         }
     }
 
@@ -323,5 +445,5 @@ void main() {
     color *= opacity;
 
     fragColor = vec4(color, opacity);
-}
-`;
+}`;
+

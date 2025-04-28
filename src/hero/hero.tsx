@@ -21,15 +21,14 @@ type State = ShaderParams & {
   background: string;
   frameCount: number;
   frameDelay: number;
-  framerate: number | 'custom'; // Add framerate to state
   quality: number;
   size: number;
   transparent: boolean;
   effects: {
     dither: string;
-    noiseAmount: number;
-    threshold: number;
-    invert: boolean;
+    ditherIntensity: number;
+    halftoneType: string;
+    halftoneSize: number; // Add halftone size
   }
 };
 
@@ -38,15 +37,14 @@ const defaultState: State = {
   background: 'metal', 
   frameCount: 60, 
   frameDelay: 50, 
-  framerate: 'custom', // Default to custom since 50ms doesn't match standard framerates
   quality: 5, 
   size: 512, 
   transparent: true,
   effects: {
     dither: 'none',
-    noiseAmount: 0,
-    threshold: 0,
-    invert: false
+    ditherIntensity: 1.0,
+    halftoneType: 'circles',
+    halftoneSize: 0.15 // Default halftone size
   }
 };
 
@@ -61,26 +59,6 @@ declare global {
     ) => void;
   }
 }
-
-// Add a helper function to convert framerate to delay
-const framerateToDelay = (fps: number): number => {
-  return Math.round(1000 / fps);
-};
-
-// Add a helper function to find closest framerate from delay
-const delayToFramerate = (delay: number): number | 'custom' => {
-  const standardFramerates = [12, 24, 25, 30, 60, 120];
-  const targetFps = 1000 / delay;
-  
-  // Check if it's very close to a standard framerate
-  for (const fps of standardFramerates) {
-    if (Math.abs(fps - targetFps) < 0.1) {
-      return fps;
-    }
-  }
-  
-  return 'custom';
-};
 
 export function Hero({ imageId }: HeroProps) {
   const [state, setState] = useState<State>(defaultState);
@@ -290,12 +268,15 @@ export function Hero({ imageId }: HeroProps) {
         state.quality,
         state.size,
         state.transparent,
-        state.effects.dither, // Pass dither state here
+        state.effects.dither,
+        state.effects.ditherIntensity,
+        state.effects.halftoneType,
+        state.effects.halftoneSize, // Pass halftone size
         (frames, total) => setCaptureProgress({ frames, total, active: true })
       );
       downloadAnimation(url, 'liquid-metal-favicon.gif');
     } catch (e) {
-      console.error('Failed to generate favicon:', e); // Log the error
+      console.error('Failed to generate favicon:', e);
       toast.error('Failed to generate favicon');
     } finally {
       setTimeout(() => setCaptureProgress({ frames: 0, total: 0, active: false }), 800);
@@ -492,48 +473,83 @@ export function Hero({ imageId }: HeroProps) {
               <option value="bayer4x4">Bayer 4x4</option>
               <option value="bayer8x8">Bayer 8x8</option>
               <option value="floydSteinberg">Floyd-Steinberg</option>
+              <option value="random">Random</option>
+              <option value="halftone">Halftone</option>
             </select>
           </div>
-
-          <Control
-            label="Noise"
-            value={state.effects.noiseAmount}
-            min={0}
-            max={1}
-            step={0.01}
-            onValueChange={(value) => setState((state) => ({ 
-              ...state, 
-              effects: { ...state.effects, noiseAmount: value } 
-            }))}
-            variant="effects"
-          />
-
-          <Control
-            label="Threshold"
-            value={state.effects.threshold}
-            min={0}
-            max={1}
-            step={0.01}
-            onValueChange={(value) => setState((state) => ({ 
-              ...state, 
-              effects: { ...state.effects, threshold: value } 
-            }))}
-            variant="effects"
-          />
-
-          <div className="col-span-full flex items-center gap-24">
-            <label htmlFor="invert" className="pr-16 text-nowrap">Invert Colors</label>
-            <input
-              type="checkbox"
-              id="invert"
-              checked={state.effects.invert}
-              onChange={(e) => setState({ 
-                ...state, 
-                effects: { ...state.effects, invert: e.target.checked } 
-              })}
-              className="size-18 cursor-pointer rounded-full text-[0px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-            />
-          </div>
+          
+          {/* Only show intensity slider if dithering is enabled */}
+          {state.effects.dither !== 'none' && (
+            <>
+              <div>
+                <label className="pr-16 text-nowrap">Dither Intensity</label>
+              </div>
+              <div className="flex h-40 items-center gap-9">
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={state.effects.ditherIntensity}
+                  onChange={(e) => setState({
+                    ...state,
+                    effects: { ...state.effects, ditherIntensity: parseFloat(e.target.value) }
+                  })}
+                  className="w-full h-2 bg-black rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-16 [&::-webkit-slider-thumb]:h-16 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:w-16 [&::-moz-range-thumb]:h-16 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-none [&::-webkit-slider-runnable-track]:bg-white/30 [&::-webkit-slider-runnable-track]:rounded-full"
+                />
+              </div>
+              <div className="text-sm text-right">
+                {(state.effects.ditherIntensity * 100).toFixed(0)}%
+              </div>
+            </>
+          )}
+          
+          {/* Only show halftone type dropdown if halftone dithering is selected */}
+          {state.effects.dither === 'halftone' && (
+            <>
+              <div>
+                <label className="pr-16 text-nowrap">Halftone Type</label>
+              </div>
+              <div className="flex h-40 items-center gap-9 sm:col-span-2">
+                <select 
+                  className="w-full h-full bg-black text-white border border-white/30 rounded-4 px-8"
+                  value={state.effects.halftoneType}
+                  onChange={(e) => setState({
+                    ...state,
+                    effects: { ...state.effects, halftoneType: e.target.value }
+                  })}
+                >
+                  <option value="circles">Circles</option>
+                  <option value="lines">Lines</option>
+                  <option value="diamonds">Diamonds</option>
+                  <option value="crosses">Crosses</option>
+                  <option value="dots">Dots</option>
+                </select>
+              </div>
+              
+              {/* Add halftone size slider */}
+              <div>
+                <label className="pr-16 text-nowrap">Halftone Size</label>
+              </div>
+              <div className="flex h-40 items-center gap-9">
+                <input
+                  type="range"
+                  min="0.05"
+                  max="0.3"
+                  step="0.01"
+                  value={state.effects.halftoneSize}
+                  onChange={(e) => setState({
+                    ...state,
+                    effects: { ...state.effects, halftoneSize: parseFloat(e.target.value) }
+                  })}
+                  className="w-full h-2 bg-black rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-16 [&::-webkit-slider-thumb]:h-16 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:w-16 [&::-moz-range-thumb]:h-16 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-none [&::-webkit-slider-runnable-track]:bg-white/30 [&::-webkit-slider-runnable-track]:rounded-full"
+                />
+              </div>
+              <div className="text-sm text-right">
+                {(state.effects.halftoneSize * 100).toFixed(0)}%
+              </div>
+            </>
+          )}
         </div>
 
         {/* Download Controls Section */}
